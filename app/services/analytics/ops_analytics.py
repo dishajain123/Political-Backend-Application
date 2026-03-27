@@ -12,6 +12,14 @@ from app.utils.enums import ComplaintStatus
 
 
 class OpsAnalyticsService:
+    KNOWN_CAMPAIGN_CATEGORIES = [
+        "road_repair",
+        "school_infrastructure",
+        "drainage",
+        "water_supply",
+        "general",
+    ]
+
     def __init__(self):
         self.db = get_database()
 
@@ -108,6 +116,47 @@ class OpsAnalyticsService:
         ]
         rows = await self.db[collection].aggregate(pipeline).to_list(None)
         return [{"date": r["_id"]["date"], "value": r["count"]} for r in rows]
+
+    async def _trend_by_day_with_id_fallback(
+        self,
+        collection: str,
+        date_field: str,
+        start: Optional[datetime],
+        end: Optional[datetime],
+    ) -> List[Dict[str, Any]]:
+        date_expr: Dict[str, Any] = {"$ifNull": [f"${date_field}", {"$toDate": "$_id"}]}
+        expr_filters: List[Dict[str, Any]] = []
+        if start:
+            expr_filters.append({"$gte": [date_expr, start]})
+        if end:
+            expr_filters.append({"$lte": [date_expr, end]})
+
+        pipeline: List[Dict[str, Any]] = []
+        if expr_filters:
+            pipeline.append({"$match": {"$expr": {"$and": expr_filters}}})
+
+        pipeline.extend([
+            {
+                "$group": {
+                    "_id": {
+                        "date": {"$dateToString": {"format": "%Y-%m-%d", "date": date_expr}}
+                    },
+                    "count": {"$sum": 1},
+                }
+            },
+            {"$sort": {"_id.date": 1}},
+        ])
+
+        rows = await self.db[collection].aggregate(pipeline).to_list(None)
+        return [{"date": r["_id"]["date"], "value": r["count"]} for r in rows]
+
+    @staticmethod
+    def _normalize_campaign_category(value: Any) -> str:
+        if value is None:
+            return "unknown"
+        normalized = str(value).strip().lower()
+        normalized = normalized.replace(" ", "_").replace("-", "_")
+        return normalized if normalized else "unknown"
 
     async def overview(
         self,
@@ -957,12 +1006,27 @@ class OpsAnalyticsService:
         ]).to_list(None)
         total_raised = float(total_raised_doc[0]["sum"]) if total_raised_doc else 0.0
 
-        category_distribution = await self._count_by_field("campaigns", "category", start, end)
+        # Campaigns summary is all-time; avoid range filtering so all categories show up
+        raw_category_counts = await self._count_by_field("campaigns", "category", None, None)
+        normalized_counts: Dict[str, int] = {}
+        for raw_label, count in raw_category_counts.items():
+            key = self._normalize_campaign_category(raw_label)
+            normalized_counts[key] = normalized_counts.get(key, 0) + int(count)
+
+        categories = list(self.KNOWN_CAMPAIGN_CATEGORIES)
+        for label in normalized_counts.keys():
+            if label not in categories:
+                categories.append(label)
+
+        category_distribution = [
+            {"label": label, "value": int(normalized_counts.get(label, 0))}
+            for label in categories
+        ]
         status_distribution = {
             "active": active_campaigns,
             "closed": closed_campaigns,
         }
-        trend = await self._trend_by_day("campaigns", "created_at", start, end)
+        trend = await self._trend_by_day_with_id_fallback("campaigns", "created_at", start, end)
 
         top_campaigns = await self.db.campaigns.find().sort("total_raised", -1).limit(5).to_list(None)
         low_campaigns = await self.db.campaigns.find().sort("total_raised", 1).limit(5).to_list(None)
@@ -972,7 +1036,7 @@ class OpsAnalyticsService:
             "active_campaigns": active_campaigns,
             "closed_campaigns": closed_campaigns,
             "total_raised": total_raised,
-            "category_distribution": [{"label": k, "value": v} for k, v in category_distribution.items()],
+            "category_distribution": category_distribution,
             "status_distribution": [{"label": k, "value": v} for k, v in status_distribution.items()],
             "trend": trend,
             "top_campaigns": [
