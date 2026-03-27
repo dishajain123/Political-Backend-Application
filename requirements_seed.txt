@@ -1,0 +1,17 @@
+# Seed Data Generator Requirements
+# Install with: pip install -r requirements_seed.txt
+
+# Faker - Generate realistic dummy data
+faker==20.1.0
+
+# PyMongo - MongoDB driver for Python
+pymongo==4.6.1
+
+# Motor - Async MongoDB driver
+motor==3.3.2
+
+# Pydantic - Data validation and settings
+pydantic==2.5.3
+
+# Python-dotenv - Environment variable management
+python-dotenv==1.0.0

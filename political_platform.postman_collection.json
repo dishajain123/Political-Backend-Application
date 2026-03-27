@@ -1,0 +1,921 @@
+{
+  "info": {
+    "_postman_id": "political-platform-collection",
+    "name": "Political Communication Platform API",
+    "description": "Complete API collection for the Political Communication Platform. \n\n**Setup:**\n1. Create an Environment with variable `baseUrl` = `http://localhost:8000/api/v1`\n2. Add variable `accessToken` (leave empty — auto-set on login)\n3. Run requests in the order shown in each folder\n\n**Tip:** After Login, the `accessToken` environment variable is auto-set by the Test script.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8000/api/v1",
+      "type": "string"
+    },
+    {
+      "key": "accessToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refreshToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "complaintId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "leaderId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "eventId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "pollId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "announcementId",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Authentication",
+      "description": "All auth endpoints. Run in order: Register → Login → Use Token → Refresh",
+      "item": [
+        {
+          "name": "1.1 Register Voter",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{baseUrl}}/auth/register-voter", "host": ["{{baseUrl}}"], "path": ["auth", "register-voter"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"voter@example.com\",\n  \"mobile_number\": \"9876543210\",\n  \"password\": \"Password@123\",\n  \"full_name\": \"Rajesh Kumar\",\n  \"location\": {\n    \"state\": \"Maharashtra\",\n    \"city\": \"Mumbai\",\n    \"ward\": \"Ward-A\",\n    \"area\": \"Andheri East\"\n  },\n  \"language_preference\": \"en\",\n  \"family_adults\": 2,\n  \"family_kids\": 1,\n  \"demographics\": {\n    \"education\": \"graduate\",\n    \"occupation\": \"employed_private\",\n    \"profession\": \"Engineer\",\n    \"annual_income_range\": \"5_10_lakh\",\n    \"age_group\": \"26_35\",\n    \"religion\": \"Hindu\"\n  }\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "1.2 Register Leader",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{baseUrl}}/auth/register-leader", "host": ["{{baseUrl}}"], "path": ["auth", "register-leader"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"leader@example.com\",\n  \"mobile_number\": \"9876543211\",\n  \"password\": \"Password@123\",\n  \"full_name\": \"Suresh Patil\",\n  \"location\": {\n    \"state\": \"Maharashtra\",\n    \"city\": \"Mumbai\",\n    \"ward\": \"Ward-A\",\n    \"area\": \"Andheri East\"\n  },\n  \"language_preference\": \"en\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "1.3 Login (saves token)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var json = pm.response.json();",
+                  "if (json.data && json.data.access_token) {",
+                  "    pm.environment.set('accessToken', json.data.access_token);",
+                  "    pm.environment.set('refreshToken', json.data.refresh_token);",
+                  "    console.log('Token saved to environment.');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"voter@example.com\",\n  \"password\": \"Password@123\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "1.3b Login with Mobile",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var json = pm.response.json();",
+                  "if (json.data && json.data.access_token) {",
+                  "    pm.environment.set('accessToken', json.data.access_token);",
+                  "    pm.environment.set('refreshToken', json.data.refresh_token);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mobile_number\": \"9876543210\",\n  \"password\": \"Password@123\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "1.4 Get Current User Info",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {"raw": "{{baseUrl}}/auth/me", "host": ["{{baseUrl}}"], "path": ["auth", "me"]}
+          },
+          "response": []
+        },
+        {
+          "name": "1.5 Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var json = pm.response.json();",
+                  "if (json.data && json.data.access_token) {",
+                  "    pm.environment.set('accessToken', json.data.access_token);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{baseUrl}}/auth/refresh", "host": ["{{baseUrl}}"], "path": ["auth", "refresh"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refreshToken}}\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "1.6 Change Password",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{baseUrl}}/auth/change-password", "host": ["{{baseUrl}}"], "path": ["auth", "change-password"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"old_password\": \"Password@123\",\n  \"new_password\": \"NewPassword@456\",\n  \"confirm_password\": \"NewPassword@456\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "1.7 Forgot Password",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{baseUrl}}/auth/forgot-password", "host": ["{{baseUrl}}"], "path": ["auth", "forgot-password"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"voter@example.com\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "1.8 Reset Password (with token from email)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{baseUrl}}/auth/reset-password", "host": ["{{baseUrl}}"], "path": ["auth", "reset-password"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reset_token\": \"TOKEN_FROM_EMAIL\",\n  \"new_password\": \"NewPassword@789\",\n  \"confirm_password\": \"NewPassword@789\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "1.9 Logout",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {"raw": "{{baseUrl}}/auth/logout", "host": ["{{baseUrl}}"], "path": ["auth", "logout"]}
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "2. User Management",
+      "description": "User profile, updates, and admin operations. Requires valid Bearer Token.",
+      "item": [
+        {
+          "name": "2.1 Get My Profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {"raw": "{{baseUrl}}/users/me", "host": ["{{baseUrl}}"], "path": ["users", "me"]}
+          },
+          "response": []
+        },
+        {
+          "name": "2.2 Update My Profile",
+          "request": {
+            "method": "PATCH",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{baseUrl}}/users/me", "host": ["{{baseUrl}}"], "path": ["users", "me"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"Rajesh Kumar Updated\",\n  \"language_preference\": \"hi\",\n  \"location\": {\n    \"state\": \"Maharashtra\",\n    \"city\": \"Mumbai\",\n    \"ward\": \"Ward-B\",\n    \"area\": \"Andheri West\"\n  }\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "2.3 Update Voter Demographics (Voter only)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{baseUrl}}/users/me/demographics", "host": ["{{baseUrl}}"], "path": ["users", "me", "demographics"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"age_group\": \"26_35\",\n  \"gender\": \"male\",\n  \"occupation\": \"employed_private\",\n  \"education\": \"graduate\",\n  \"issues_of_interest\": [\"infrastructure\", \"education\", \"healthcare\"]\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "2.4 Update Notification Preferences",
+          "request": {
+            "method": "PATCH",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{baseUrl}}/users/me/notification-preferences", "host": ["{{baseUrl}}"], "path": ["users", "me", "notification-preferences"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": true,\n  \"sms\": true,\n  \"push\": true,\n  \"quiet_hours_start\": \"22:00\",\n  \"quiet_hours_end\": \"08:00\",\n  \"receive_announcements\": true,\n  \"receive_polls\": true,\n  \"receive_events\": true,\n  \"receive_updates\": true\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "2.5 List Users (Admin/Corporator) ",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/?role=leader&city=Mumbai&page=1&page_size=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["users", ""],
+              "query": [
+                {"key": "role", "value": "leader", "description": "voter | leader | corporator | ops"},
+                {"key": "city", "value": "Mumbai"},
+                {"key": "page", "value": "1"},
+                {"key": "page_size", "value": "20"}
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "2.6 Get User by ID (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {"raw": "{{baseUrl}}/users/USER_ID_HERE", "host": ["{{baseUrl}}"], "path": ["users", "USER_ID_HERE"]}
+          },
+          "response": []
+        },
+        {
+          "name": "2.7 Assign Leader to Territory (Corporator)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{baseUrl}}/users/leaders/assign", "host": ["{{baseUrl}}"], "path": ["users", "leaders", "assign"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"leader_id\": \"{{leaderId}}\",\n  \"assigned_areas\": [\"Andheri East\", \"Andheri West\"],\n  \"assigned_wards\": [\"Ward-A\", \"Ward-B\"],\n  \"total_voters\": 5000,\n  \"responsibilities\": [\"complaint_followups\", \"event_coordination\"]\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "2.8 Get Leader Performance",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {"raw": "{{baseUrl}}/users/leaders/performance/{{leaderId}}", "host": ["{{baseUrl}}"], "path": ["users", "leaders", "performance", "{{leaderId}}"]}
+          },
+          "response": []
+        },
+        {
+          "name": "2.9 Deactivate User (Admin)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {"raw": "{{baseUrl}}/users/USER_ID_HERE", "host": ["{{baseUrl}}"], "path": ["users", "USER_ID_HERE"]}
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "3. Complaints",
+      "description": "Full complaint lifecycle. Voter creates → Corporator assigns → Leader acknowledges → Leader notes → Corporator resolves → Voter verifies.",
+      "item": [
+        {
+          "name": "3.1 Create Complaint (Voter)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var json = pm.response.json();",
+                  "if (json.complaint_id) { pm.environment.set('complaintId', json.complaint_id); }"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{baseUrl}}/complaints/", "host": ["{{baseUrl}}"], "path": ["complaints", ""]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Pothole on Main Street Near Bus Stop\",\n  \"description\": \"There is a large pothole on the main road near bus stop no. 12 causing accidents and traffic jams. Urgent repair needed.\",\n  \"category\": \"roads\",\n  \"priority\": \"high\",\n  \"location\": {\n    \"state\": \"Maharashtra\",\n    \"city\": \"Mumbai\",\n    \"ward\": \"Ward-A\",\n    \"area\": \"Andheri East\"\n  }\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "3.2 List My Complaints (Voter) / All (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/complaints/?page=1&page_size=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["complaints", ""],
+              "query": [
+                {"key": "status", "value": "pending", "disabled": true, "description": "pending | in_progress | resolved | closed | declined"},
+                {"key": "category", "value": "roads", "disabled": true},
+                {"key": "priority", "value": "high", "disabled": true},
+                {"key": "page", "value": "1"},
+                {"key": "page_size", "value": "20"}
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "3.3 Assign Complaint to Leader (Corporator)",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/complaints/{{complaintId}}/assign?leader_id={{leaderId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["complaints", "{{complaintId}}", "assign"],
+              "query": [{"key": "leader_id", "value": "{{leaderId}}"}]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "3.4 Leader Acknowledges Complaint",
+          "request": {
+            "method": "PATCH",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{baseUrl}}/complaints/{{complaintId}}/acknowledge", "host": ["{{baseUrl}}"], "path": ["complaints", "{{complaintId}}", "acknowledge"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"acknowledgment_notes\": \"Received complaint. Will visit the site tomorrow morning to assess the damage.\",\n  \"expected_visit_date\": \"2026-04-01T10:00:00Z\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "3.5 Update Status (Leader → in_progress)",
+          "request": {
+            "method": "PATCH",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{baseUrl}}/complaints/{{complaintId}}/status", "host": ["{{baseUrl}}"], "path": ["complaints", "{{complaintId}}", "status"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"in_progress\",\n  \"notes\": \"Work order submitted to contractor. Repair scheduled for next week.\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "3.6 Add Field Note (Leader)",
+          "request": {
+            "method": "PATCH",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{baseUrl}}/complaints/{{complaintId}}/note", "host": ["{{baseUrl}}"], "path": ["complaints", "{{complaintId}}", "note"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Visited site: confirmed pothole depth is 8 inches. Requires immediate repair. Contractor notified.\",\n  \"is_internal\": true,\n  \"note_type\": \"field_observation\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "3.7 Resolve Complaint (Corporator/Ops)",
+          "request": {
+            "method": "PATCH",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{baseUrl}}/complaints/{{complaintId}}/resolve", "host": ["{{baseUrl}}"], "path": ["complaints", "{{complaintId}}", "resolve"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"resolution_notes\": \"Pothole has been repaired and leveled successfully. Road surface is now safe for vehicles.\",\n  \"attachment_urls\": []\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "3.8 Request Verification (Corporator)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{baseUrl}}/complaints/{{complaintId}}/request-verification", "host": ["{{baseUrl}}"], "path": ["complaints", "{{complaintId}}", "request-verification"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"notes\": \"Please confirm if the pothole repair meets your satisfaction.\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "3.9 Submit Verification Feedback (Voter)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{baseUrl}}/complaints/{{complaintId}}/verification-feedback", "host": ["{{baseUrl}}"], "path": ["complaints", "{{complaintId}}", "verification-feedback"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rating\": 4,\n  \"comment\": \"Repair was done well but took a bit longer than expected.\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "3.10 Escalate Complaint",
+          "request": {
+            "method": "PATCH",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{baseUrl}}/complaints/{{complaintId}}/escalate", "host": ["{{baseUrl}}"], "path": ["complaints", "{{complaintId}}", "escalate"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Complaint not addressed for 14 days despite assignment. Escalating to corporator for direct intervention.\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "3.11 Decline Complaint (Leader/Corporator)",
+          "request": {
+            "method": "PATCH",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{baseUrl}}/complaints/{{complaintId}}/decline", "host": ["{{baseUrl}}"], "path": ["complaints", "{{complaintId}}", "decline"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decline_reason\": \"This complaint falls outside the jurisdiction of our ward.\",\n  \"decline_category\": \"out_of_jurisdiction\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "3.12 Submit Voter Feedback (on resolved complaint)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{baseUrl}}/complaints/{{complaintId}}/feedback", "host": ["{{baseUrl}}"], "path": ["complaints", "{{complaintId}}", "feedback"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"satisfaction_rating\": 4,\n  \"feedback\": \"Good response time, repair quality is satisfactory.\"\n}"
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "4. Events",
+      "description": "Event management. Corporator creates → Leaders assigned → Voters register → Attendance marked.",
+      "item": [
+        {
+          "name": "4.1 Create Event (Corporator)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var json = pm.response.json();",
+                  "if (json.id) { pm.environment.set('eventId', json.id); }"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{baseUrl}}/events/", "host": ["{{baseUrl}}"], "path": ["events", ""]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Community Town Hall Meeting\",\n  \"description\": \"Monthly town hall meeting to discuss ward development plans and address voter concerns in person.\",\n  \"event_type\": \"meeting\",\n  \"event_date\": \"2026-04-15T10:00:00Z\",\n  \"end_date\": \"2026-04-15T13:00:00Z\",\n  \"location\": {\n    \"state\": \"Maharashtra\",\n    \"city\": \"Mumbai\",\n    \"ward\": \"Ward-A\",\n    \"area\": \"Andheri East\"\n  },\n  \"venue\": \"Community Hall, Andheri East\",\n  \"is_public\": true\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "4.2 List Events",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/events/?page=1&page_size=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["events", ""],
+              "query": [
+                {"key": "status", "value": "scheduled", "disabled": true, "description": "scheduled | ongoing | completed | cancelled"},
+                {"key": "event_type", "value": "meeting", "disabled": true},
+                {"key": "page", "value": "1"},
+                {"key": "page_size", "value": "20"}
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "4.3 Get Event by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {"raw": "{{baseUrl}}/events/{{eventId}}", "host": ["{{baseUrl}}"], "path": ["events", "{{eventId}}"]}
+          },
+          "response": []
+        },
+        {
+          "name": "4.4 Assign Leader to Event (Corporator)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/events/{{eventId}}/assign-leader?leader_id={{leaderId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["events", "{{eventId}}", "assign-leader"],
+              "query": [{"key": "leader_id", "value": "{{leaderId}}"}]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "4.5 Register for Event (Voter/Leader)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {"raw": "{{baseUrl}}/events/{{eventId}}/register", "host": ["{{baseUrl}}"], "path": ["events", "{{eventId}}", "register"]}
+          },
+          "response": []
+        },
+        {
+          "name": "4.6 Mark Attendance (Leader/Corporator)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/events/{{eventId}}/mark-attendance?user_id=VOTER_USER_ID&attended=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["events", "{{eventId}}", "mark-attendance"],
+              "query": [
+                {"key": "user_id", "value": "VOTER_USER_ID"},
+                {"key": "attended", "value": "true"}
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "4.7 Update Event Status",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{baseUrl}}/events/{{eventId}}/status", "host": ["{{baseUrl}}"], "path": ["events", "{{eventId}}", "status"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"completed\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "4.8 Get Event Metrics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {"raw": "{{baseUrl}}/events/{{eventId}}/metrics", "host": ["{{baseUrl}}"], "path": ["events", "{{eventId}}", "metrics"]}
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "5. Polls",
+      "description": "Poll lifecycle. Corporator creates → Publishes → Voters respond → Analytics viewed.",
+      "item": [
+        {
+          "name": "5.1 Create Poll (Corporator)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var json = pm.response.json();",
+                  "if (json.poll_id) { pm.environment.set('pollId', json.poll_id); }"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{baseUrl}}/polls/", "host": ["{{baseUrl}}"], "path": ["polls", ""]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Which infrastructure should be prioritized in 2026?\",\n  \"description\": \"Help us understand which civic issues matter most to you.\",\n  \"poll_type\": \"multiple_choice\",\n  \"options\": [\n    {\"text\": \"Roads & Potholes\", \"description\": \"Road repair and maintenance\"},\n    {\"text\": \"Water Supply\", \"description\": \"Clean water access\"},\n    {\"text\": \"Street Lighting\", \"description\": \"Improve street lights\"},\n    {\"text\": \"Parks & Gardens\", \"description\": \"Maintain public spaces\"}\n  ],\n  \"target_roles\": [\"voter\", \"leader\"],\n  \"is_anonymous\": true,\n  \"is_public\": true,\n  \"show_results\": \"after_voting\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "5.2 List Polls",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/polls/?page=1&page_size=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["polls", ""],
+              "query": [
+                {"key": "status", "value": "active", "disabled": true, "description": "draft | active | completed"},
+                {"key": "page", "value": "1"},
+                {"key": "page_size", "value": "20"}
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "5.3 Publish Poll (Corporator)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{baseUrl}}/polls/{{pollId}}/publish", "host": ["{{baseUrl}}"], "path": ["polls", "{{pollId}}", "publish"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"start_date\": \"2026-04-01T09:00:00Z\",\n  \"end_date\": \"2026-04-07T18:00:00Z\",\n  \"target_roles\": [\"voter\", \"leader\"]\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "5.4 Vote on Poll (Voter)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{baseUrl}}/polls/{{pollId}}/vote", "host": ["{{baseUrl}}"], "path": ["polls", "{{pollId}}", "vote"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"option_id\": \"0\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "5.5 Get Poll Results/Analytics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {"raw": "{{baseUrl}}/polls/{{pollId}}/analytics", "host": ["{{baseUrl}}"], "path": ["polls", "{{pollId}}", "analytics"]}
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "6. Announcements",
+      "description": "Announcement lifecycle. Corporator/Leader creates draft → Publishes → Voters see and acknowledge.",
+      "item": [
+        {
+          "name": "6.1 Create Announcement (Corporator/Leader)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var json = pm.response.json();",
+                  "if (json.announcement_id) { pm.environment.set('announcementId', json.announcement_id); }"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{baseUrl}}/announcements/", "host": ["{{baseUrl}}"], "path": ["announcements", ""]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Water Supply Shutdown Notice\",\n  \"content\": \"Dear residents of Andheri East, water supply will be interrupted on April 5, 2026 from 6 AM to 2 PM for maintenance of the main pipeline. Please store water in advance.\",\n  \"category\": \"alert\",\n  \"priority\": \"high\",\n  \"is_public\": true,\n  \"require_acknowledgment\": true,\n  \"target\": {\n    \"roles\": [\"voter\"],\n    \"state\": \"Maharashtra\",\n    \"city\": \"Mumbai\",\n    \"area\": \"Andheri East\"\n  }\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "6.2 List Announcements",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/announcements/?page=1&page_size=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["announcements", ""],
+              "query": [
+                {"key": "status", "value": "published", "disabled": true},
+                {"key": "priority", "value": "high", "disabled": true},
+                {"key": "page", "value": "1"},
+                {"key": "page_size", "value": "20"}
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "6.3 Publish Announcement (Corporator/Leader)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{baseUrl}}/announcements/{{announcementId}}/publish", "host": ["{{baseUrl}}"], "path": ["announcements", "{{announcementId}}", "publish"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"publish_at\": null\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "6.4 Get Announcement by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {"raw": "{{baseUrl}}/announcements/{{announcementId}}", "host": ["{{baseUrl}}"], "path": ["announcements", "{{announcementId}}"]}
+          },
+          "response": []
+        },
+        {
+          "name": "6.5 Acknowledge Announcement (Voter)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{baseUrl}}/announcements/{{announcementId}}/acknowledge", "host": ["{{baseUrl}}"], "path": ["announcements", "{{announcementId}}", "acknowledge"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"acknowledged\": true\n}"
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "7. Analytics (Corporator/Ops Only)",
+      "description": "All analytics are AGGREGATED — no individual voter data is exposed.",
+      "item": [
+        {
+          "name": "7.1 Complaint Analytics Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {"raw": "{{baseUrl}}/analytics/complaints", "host": ["{{baseUrl}}"], "path": ["analytics", "complaints"]}
+          },
+          "response": []
+        },
+        {
+          "name": "7.2 Leader Performance Overview",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {"raw": "{{baseUrl}}/analytics/leader-performance", "host": ["{{baseUrl}}"], "path": ["analytics", "leader-performance"]}
+          },
+          "response": []
+        },
+        {
+          "name": "7.3 Sentiment Analytics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {"raw": "{{baseUrl}}/analytics/sentiment", "host": ["{{baseUrl}}"], "path": ["analytics", "sentiment"]}
+          },
+          "response": []
+        },
+        {
+          "name": "7.4 Issue Geographic Heatmap",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {"raw": "{{baseUrl}}/analytics/issue-heatmap", "host": ["{{baseUrl}}"], "path": ["analytics", "issue-heatmap"]}
+          },
+          "response": []
+        },
+        {
+          "name": "7.5 OPS Dashboard Overview",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/analytics/ops/overview?range=last_30_days",
+              "host": ["{{baseUrl}}"],
+              "path": ["analytics", "ops", "overview"],
+              "query": [
+                {"key": "range", "value": "last_30_days", "description": "today | last_7_days | last_30_days | last_90_days | this_month"},
+                {"key": "ward", "value": "Ward-A", "disabled": true}
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "7.6 OPS Users Analytics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {"raw": "{{baseUrl}}/analytics/ops/users?range=last_30_days", "host": ["{{baseUrl}}"], "path": ["analytics", "ops", "users"], "query": [{"key": "range", "value": "last_30_days"}]}
+          },
+          "response": []
+        },
+        {
+          "name": "7.7 OPS Complaints Analytics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {"raw": "{{baseUrl}}/analytics/ops/complaints?range=last_30_days", "host": ["{{baseUrl}}"], "path": ["analytics", "ops", "complaints"], "query": [{"key": "range", "value": "last_30_days"}]}
+          },
+          "response": []
+        },
+        {
+          "name": "7.8 OPS Events Analytics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {"raw": "{{baseUrl}}/analytics/ops/events?range=last_30_days", "host": ["{{baseUrl}}"], "path": ["analytics", "ops", "events"], "query": [{"key": "range", "value": "last_30_days"}]}
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "8. Health Check",
+      "item": [
+        {
+          "name": "Health Check (No Auth)",
+          "request": {
+            "auth": {"type": "noauth"},
+            "method": "GET",
+            "header": [],
+            "url": {"raw": "http://localhost:8000/health", "host": ["http://localhost:8000"], "path": ["health"]}
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
