@@ -117,6 +117,57 @@ class OpsAnalyticsService:
         rows = await self.db[collection].aggregate(pipeline).to_list(None)
         return [{"date": r["_id"]["date"], "value": r["count"]} for r in rows]
 
+    async def _trend_by_week(self, collection: str, date_field: str, start: Optional[datetime], end: Optional[datetime]) -> List[Dict[str, Any]]:
+        pipeline = [
+            *self._date_match(date_field, start, end),
+            {
+                "$group": {
+                    "_id": {
+                        "year": {"$isoWeekYear": f"${date_field}"},
+                        "week": {"$isoWeek": f"${date_field}"},
+                    },
+                    "count": {"$sum": 1},
+                }
+            },
+            {"$sort": {"_id.year": 1, "_id.week": 1}},
+        ]
+        rows = await self.db[collection].aggregate(pipeline).to_list(None)
+        return [{"date": f"{r['_id']['year']}-W{int(r['_id']['week']):02d}", "value": r["count"]} for r in rows]
+
+    async def _trend_by_month(self, collection: str, date_field: str, start: Optional[datetime], end: Optional[datetime]) -> List[Dict[str, Any]]:
+        pipeline = [
+            *self._date_match(date_field, start, end),
+            {
+                "$group": {
+                    "_id": {
+                        "year": {"$year": f"${date_field}"},
+                        "month": {"$month": f"${date_field}"},
+                    },
+                    "count": {"$sum": 1},
+                }
+            },
+            {"$sort": {"_id.year": 1, "_id.month": 1}},
+        ]
+        rows = await self.db[collection].aggregate(pipeline).to_list(None)
+        return [{"date": f"{r['_id']['year']}-{int(r['_id']['month']):02d}", "value": r["count"]} for r in rows]
+
+    async def _growth_rate(
+        self,
+        collection: str,
+        date_field: str,
+        start: Optional[datetime],
+        end: Optional[datetime],
+    ) -> Dict[str, Any]:
+        if not start or not end:
+            return {"current": 0, "previous": 0, "pct": 0.0}
+        delta = end - start
+        prev_start = start - delta
+        prev_end = start
+        current = await self.db[collection].count_documents({date_field: {"$gte": start, "$lte": end}})
+        previous = await self.db[collection].count_documents({date_field: {"$gte": prev_start, "$lte": prev_end}})
+        pct = ((current - previous) / previous) * 100.0 if previous > 0 else 0.0
+        return {"current": int(current), "previous": int(previous), "pct": round(pct, 2)}
+
     async def _trend_by_day_with_id_fallback(
         self,
         collection: str,
@@ -1222,6 +1273,734 @@ class OpsAnalyticsService:
             "recent_events": recent_events,
             "trend": trend,
         }
+
+    async def events_advanced(
+        self,
+        range_key: Optional[str],
+        start_date: Optional[datetime],
+        end_date: Optional[datetime],
+    ) -> Dict[str, Any]:
+        start, end = self._parse_range(range_key, start_date, end_date)
+        date_match = self._date_match("event_date", start, end)
+
+        date_filter: Dict[str, Any] = {}
+        if start:
+            date_filter["$gte"] = start
+        if end:
+            date_filter["$lte"] = end
+        range_filter = {"event_date": date_filter} if date_filter else {}
+
+        total_events = await self.db.events.count_documents(range_filter)
+
+        # Overview totals
+        reg_rows = await self.db.events.aggregate([
+            *date_match,
+            {"$project": {"reg_count": {"$size": {"$ifNull": ["$registrations", []]}}}},
+            {"$group": {"_id": None, "total": {"$sum": "$reg_count"}}},
+        ]).to_list(None)
+        total_registered = int(reg_rows[0]["total"]) if reg_rows else 0
+
+        att_rows = await self.db.events.aggregate([
+            *date_match,
+            {"$group": {"_id": None, "total": {"$sum": {"$ifNull": ["$actual_attendees", 0]}}}},
+        ]).to_list(None)
+        total_attended = int(att_rows[0]["total"]) if att_rows else 0
+
+        util_rows = await self.db.events.aggregate([
+            *date_match,
+            {
+                "$project": {
+                    "util": {
+                        "$cond": [
+                            {"$and": [
+                                {"$ifNull": ["$max_capacity", False]},
+                                {"$gt": ["$max_capacity", 0]},
+                            ]},
+                            {"$divide": ["$actual_attendees", "$max_capacity"]},
+                            None,
+                        ]
+                    }
+                }
+            },
+            {"$group": {"_id": None, "avg": {"$avg": "$util"}}},
+        ]).to_list(None)
+        avg_utilization = float(util_rows[0]["avg"]) if util_rows else 0.0
+
+        over_capacity = await self.db.events.aggregate([
+            *date_match,
+            {
+                "$match": {
+                    "$expr": {
+                        "$and": [
+                            {"$ifNull": ["$max_capacity", False]},
+                            {"$gt": ["$max_capacity", 0]},
+                            {"$gt": ["$actual_attendees", "$max_capacity"]},
+                        ]
+                    }
+                }
+            },
+            {"$count": "count"},
+        ]).to_list(None)
+        over_capacity_events = int(over_capacity[0]["count"]) if over_capacity else 0
+
+        under_util = await self.db.events.aggregate([
+            *date_match,
+            {
+                "$project": {
+                    "util": {
+                        "$cond": [
+                            {"$and": [
+                                {"$ifNull": ["$max_capacity", False]},
+                                {"$gt": ["$max_capacity", 0]},
+                            ]},
+                            {"$divide": ["$actual_attendees", "$max_capacity"]},
+                            None,
+                        ]
+                    }
+                }
+            },
+            {
+                "$match": {
+                    "$expr": {
+                        "$and": [
+                            {"$ne": ["$util", None]},
+                            {"$lt": ["$util", 0.5]},
+                        ]
+                    }
+                }
+            },
+            {"$count": "count"},
+        ]).to_list(None)
+        underutilized_events = int(under_util[0]["count"]) if under_util else 0
+
+        async def _utilization_breakdown(field: str) -> List[Dict[str, Any]]:
+            rows = await self.db.events.aggregate([
+                *date_match,
+                {
+                    "$project": {
+                        "key": f"${field}",
+                        "util": {
+                            "$cond": [
+                                {"$and": [
+                                    {"$ifNull": ["$max_capacity", False]},
+                                    {"$gt": ["$max_capacity", 0]},
+                                ]},
+                                {"$divide": ["$actual_attendees", "$max_capacity"]},
+                                None,
+                            ]
+                        },
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": "$key",
+                        "events": {"$sum": 1},
+                        "avg_utilization": {"$avg": "$util"},
+                        "over_capacity": {
+                            "$sum": {"$cond": [{"$gt": ["$util", 1]}, 1, 0]}
+                        },
+                        "underutilized": {
+                            "$sum": {"$cond": [
+                                {"$and": [{"$ne": ["$util", None]}, {"$lt": ["$util", 0.5]}]},
+                                1,
+                                0,
+                            ]}
+                        },
+                    }
+                },
+                {"$sort": {"events": -1}},
+            ]).to_list(None)
+            return [
+                {
+                    "label": self._safe_label(r.get("_id")),
+                    "events": int(r.get("events", 0)),
+                    "avg_utilization": round(float(r.get("avg_utilization") or 0.0) * 100, 2),
+                    "over_capacity": int(r.get("over_capacity", 0)),
+                    "underutilized": int(r.get("underutilized", 0)),
+                }
+                for r in rows
+            ]
+
+        util_by_type = await _utilization_breakdown("event_type")
+        util_by_city = await _utilization_breakdown("location.city")
+
+        organizer_rows = await self.db.events.aggregate([
+            *date_match,
+            {
+                "$project": {
+                    "created_by": "$created_by",
+                    "util": {
+                        "$cond": [
+                            {"$and": [
+                                {"$ifNull": ["$max_capacity", False]},
+                                {"$gt": ["$max_capacity", 0]},
+                            ]},
+                            {"$divide": ["$actual_attendees", "$max_capacity"]},
+                            None,
+                        ]
+                    },
+                }
+            },
+            {
+                "$group": {
+                    "_id": "$created_by",
+                    "events": {"$sum": 1},
+                    "avg_utilization": {"$avg": "$util"},
+                    "over_capacity": {"$sum": {"$cond": [{"$gt": ["$util", 1]}, 1, 0]}},
+                    "underutilized": {"$sum": {"$cond": [
+                        {"$and": [{"$ne": ["$util", None]}, {"$lt": ["$util", 0.5]}]},
+                        1,
+                        0,
+                    ]}},
+                }
+            },
+            {"$sort": {"events": -1}},
+            {"$limit": 10},
+            {
+                "$addFields": {
+                    "org_obj": {
+                        "$convert": {
+                            "input": "$_id",
+                            "to": "objectId",
+                            "onError": None,
+                            "onNull": None,
+                        }
+                    }
+                }
+            },
+            {
+                "$lookup": {
+                    "from": "users",
+                    "let": {"uid": "$org_obj"},
+                    "pipeline": [
+                        {"$match": {"$expr": {"$eq": ["$_id", "$$uid"]}}},
+                        {"$project": {"full_name": 1, "role": 1}},
+                    ],
+                    "as": "user",
+                }
+            },
+            {"$unwind": {"path": "$user", "preserveNullAndEmptyArrays": True}},
+        ]).to_list(None)
+        util_by_organizer = [
+            {
+                "id": str(r.get("_id") or ""),
+                "label": self._user_display_name(r.get("user")),
+                "role": (r.get("user") or {}).get("role"),
+                "events": int(r.get("events", 0)),
+                "avg_utilization": round(float(r.get("avg_utilization") or 0.0) * 100, 2),
+                "over_capacity": int(r.get("over_capacity", 0)),
+                "underutilized": int(r.get("underutilized", 0)),
+            }
+            for r in organizer_rows
+        ]
+
+        # Registration funnel
+        funnel_rows = await self.db.events.aggregate([
+            *date_match,
+            {
+                "$project": {
+                    "event_type": "$event_type",
+                    "city": "$location.city",
+                    "created_by": "$created_by",
+                    "registered": {"$size": {"$ifNull": ["$registrations", []]}},
+                    "attended": {
+                        "$size": {
+                            "$filter": {
+                                "input": {"$ifNull": ["$registrations", []]},
+                                "as": "r",
+                                "cond": {"$eq": ["$$r.attended", True]},
+                            }
+                        }
+                    },
+                }
+            },
+        ]).to_list(None)
+        total_registered_calc = sum(int(r.get("registered", 0)) for r in funnel_rows)
+        total_attended_calc = sum(int(r.get("attended", 0)) for r in funnel_rows)
+        conversion_rate = (total_attended_calc / total_registered_calc * 100.0) if total_registered_calc else 0.0
+        drop_off_rate = 100.0 - conversion_rate if total_registered_calc else 0.0
+
+        def _funnel_breakdown(key: str) -> List[Dict[str, Any]]:
+            agg: Dict[str, Dict[str, int]] = {}
+            for row in funnel_rows:
+                label = self._safe_label(row.get(key))
+                entry = agg.setdefault(label, {"registered": 0, "attended": 0})
+                entry["registered"] += int(row.get("registered", 0))
+                entry["attended"] += int(row.get("attended", 0))
+            results = []
+            for label, vals in agg.items():
+                reg = vals["registered"]
+                att = vals["attended"]
+                rate = (att / reg * 100.0) if reg else 0.0
+                results.append({
+                    "label": label,
+                    "total_registered": reg,
+                    "total_attended": att,
+                    "conversion_rate": round(rate, 2),
+                    "drop_off_rate": round(100.0 - rate if reg else 0.0, 2),
+                })
+            return sorted(results, key=lambda x: x["total_registered"], reverse=True)
+
+        funnel_by_type = _funnel_breakdown("event_type")
+        funnel_by_city = _funnel_breakdown("city")
+        funnel_by_organizer = _funnel_breakdown("created_by")
+
+        # Feedback analytics
+        feedback_rows = await self.db.events.aggregate([
+            *date_match,
+            {"$unwind": "$registrations"},
+            {"$match": {"registrations.feedback_rating": {"$ne": None}}},
+            {
+                "$group": {
+                    "_id": None,
+                    "avg_rating": {"$avg": "$registrations.feedback_rating"},
+                    "total_feedbacks": {"$sum": 1},
+                    "positive": {"$sum": {"$cond": [{"$gte": ["$registrations.feedback_rating", 4]}, 1, 0]}},
+                    "neutral": {"$sum": {"$cond": [{"$eq": ["$registrations.feedback_rating", 3]}, 1, 0]}},
+                    "negative": {"$sum": {"$cond": [{"$lte": ["$registrations.feedback_rating", 2]}, 1, 0]}},
+                }
+            },
+        ]).to_list(None)
+        feedback_overall = feedback_rows[0] if feedback_rows else {}
+
+        feedback_by_type = await self.db.events.aggregate([
+            *date_match,
+            {"$unwind": "$registrations"},
+            {"$match": {"registrations.feedback_rating": {"$ne": None}}},
+            {
+                "$group": {
+                    "_id": "$event_type",
+                    "avg_rating": {"$avg": "$registrations.feedback_rating"},
+                    "total_feedbacks": {"$sum": 1},
+                    "positive": {"$sum": {"$cond": [{"$gte": ["$registrations.feedback_rating", 4]}, 1, 0]}},
+                    "neutral": {"$sum": {"$cond": [{"$eq": ["$registrations.feedback_rating", 3]}, 1, 0]}},
+                    "negative": {"$sum": {"$cond": [{"$lte": ["$registrations.feedback_rating", 2]}, 1, 0]}},
+                }
+            },
+            {"$sort": {"total_feedbacks": -1}},
+        ]).to_list(None)
+
+        feedback_by_city = await self.db.events.aggregate([
+            *date_match,
+            {"$unwind": "$registrations"},
+            {"$match": {"registrations.feedback_rating": {"$ne": None}}},
+            {
+                "$group": {
+                    "_id": "$location.city",
+                    "avg_rating": {"$avg": "$registrations.feedback_rating"},
+                    "total_feedbacks": {"$sum": 1},
+                    "positive": {"$sum": {"$cond": [{"$gte": ["$registrations.feedback_rating", 4]}, 1, 0]}},
+                    "neutral": {"$sum": {"$cond": [{"$eq": ["$registrations.feedback_rating", 3]}, 1, 0]}},
+                    "negative": {"$sum": {"$cond": [{"$lte": ["$registrations.feedback_rating", 2]}, 1, 0]}},
+                }
+            },
+            {"$sort": {"total_feedbacks": -1}},
+        ]).to_list(None)
+
+        # Budget analytics
+        budget_rows = await self.db.events.aggregate([
+            *date_match,
+            {
+                "$group": {
+                    "_id": None,
+                    "total_budget": {"$sum": {"$ifNull": ["$estimated_budget", 0]}},
+                    "total_spent": {"$sum": {"$ifNull": ["$actual_expense", 0]}},
+                    "total_attendees": {"$sum": {"$ifNull": ["$actual_attendees", 0]}},
+                }
+            },
+        ]).to_list(None)
+        budget = budget_rows[0] if budget_rows else {}
+        total_budget = float(budget.get("total_budget") or 0.0)
+        total_spent = float(budget.get("total_spent") or 0.0)
+        total_att_budget = float(budget.get("total_attendees") or 0.0)
+        cost_per_attendee = (total_spent / total_att_budget) if total_att_budget > 0 else 0.0
+
+        most_expensive = await self.db.events.aggregate([
+            *date_match,
+            {"$sort": {"actual_expense": -1}},
+            {"$limit": 5},
+            {
+                "$project": {
+                    "event_id": 1,
+                    "title": 1,
+                    "actual_expense": {"$ifNull": ["$actual_expense", 0]},
+                    "estimated_budget": {"$ifNull": ["$estimated_budget", 0]},
+                }
+            },
+        ]).to_list(None)
+
+        # Planning efficiency
+        lead_rows = await self.db.events.aggregate([
+            *date_match,
+            {
+                "$project": {
+                    "lead_days": {
+                        "$divide": [
+                            {"$subtract": ["$event_date", "$created_at"]},
+                            86400000,
+                        ]
+                    }
+                }
+            },
+            {
+                "$group": {
+                    "_id": None,
+                    "avg_lead": {"$avg": "$lead_days"},
+                    "short_notice": {"$sum": {"$cond": [{"$lt": ["$lead_days", 2]}, 1, 0]}},
+                    "well_planned": {"$sum": {"$cond": [{"$gt": ["$lead_days", 7]}, 1, 0]}},
+                }
+            },
+        ]).to_list(None)
+        lead_stats = lead_rows[0] if lead_rows else {}
+
+        cancelled_events = await self.db.events.count_documents({**range_filter, "status": "cancelled"})
+        postponed_events = await self.db.events.count_documents({**range_filter, "status": "postponed"})
+
+        # Organizer performance
+        organizer_perf_rows = await self.db.events.aggregate([
+            *date_match,
+            {
+                "$project": {
+                    "created_by": "$created_by",
+                    "participation_rate": {"$ifNull": ["$participation_rate", 0]},
+                    "util": {
+                        "$cond": [
+                            {"$and": [
+                                {"$ifNull": ["$max_capacity", False]},
+                                {"$gt": ["$max_capacity", 0]},
+                            ]},
+                            {"$divide": ["$actual_attendees", "$max_capacity"]},
+                            None,
+                        ]
+                    },
+                    "cancelled": {"$cond": [{"$eq": ["$status", "cancelled"]}, 1, 0]},
+                }
+            },
+            {
+                "$group": {
+                    "_id": "$created_by",
+                    "total_events": {"$sum": 1},
+                    "avg_participation_rate": {"$avg": "$participation_rate"},
+                    "avg_utilization": {"$avg": "$util"},
+                    "cancelled": {"$sum": "$cancelled"},
+                }
+            },
+            {
+                "$addFields": {
+                    "cancellation_rate": {
+                        "$cond": [
+                            {"$gt": ["$total_events", 0]},
+                            {"$divide": ["$cancelled", "$total_events"]},
+                            0,
+                        ]
+                    }
+                }
+            },
+            {"$sort": {"avg_participation_rate": -1, "total_events": -1}},
+            {
+                "$addFields": {
+                    "org_obj": {
+                        "$convert": {
+                            "input": "$_id",
+                            "to": "objectId",
+                            "onError": None,
+                            "onNull": None,
+                        }
+                    }
+                }
+            },
+            {
+                "$lookup": {
+                    "from": "users",
+                    "let": {"uid": "$org_obj"},
+                    "pipeline": [
+                        {"$match": {"$expr": {"$eq": ["$_id", "$$uid"]}}},
+                        {"$project": {"full_name": 1, "role": 1}},
+                    ],
+                    "as": "user",
+                }
+            },
+            {"$unwind": {"path": "$user", "preserveNullAndEmptyArrays": True}},
+        ]).to_list(None)
+
+        organizer_perf = [
+            {
+                "id": str(r.get("_id") or ""),
+                "label": self._user_display_name(r.get("user")),
+                "role": (r.get("user") or {}).get("role"),
+                "total_events": int(r.get("total_events", 0)),
+                "avg_participation_rate": round(float(r.get("avg_participation_rate") or 0.0), 2),
+                "avg_utilization": round(float(r.get("avg_utilization") or 0.0) * 100, 2),
+                "cancellation_rate": round(float(r.get("cancellation_rate") or 0.0) * 100, 2),
+            }
+            for r in organizer_perf_rows
+        ]
+
+        top_organizers = organizer_perf[:5]
+        low_performers = sorted(organizer_perf, key=lambda x: (x["avg_participation_rate"], x["total_events"]))[:5]
+
+        # Metadata analytics
+        language_rows = await self.db.events.aggregate([
+            *date_match,
+            {"$group": {"_id": "$content_language", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}},
+        ]).to_list(None)
+        tags_rows = await self.db.events.aggregate([
+            *date_match,
+            {"$unwind": {"path": "$tags", "preserveNullAndEmptyArrays": False}},
+            {"$group": {"_id": "$tags", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}},
+            {"$limit": 20},
+        ]).to_list(None)
+        public_rows = await self.db.events.aggregate([
+            *date_match,
+            {
+                "$project": {
+                    "is_public": {"$ifNull": ["$is_public", True]},
+                    "participation_rate": {"$ifNull": ["$participation_rate", 0]},
+                    "util": {
+                        "$cond": [
+                            {"$and": [
+                                {"$ifNull": ["$max_capacity", False]},
+                                {"$gt": ["$max_capacity", 0]},
+                            ]},
+                            {"$divide": ["$actual_attendees", "$max_capacity"]},
+                            None,
+                        ]
+                    },
+                }
+            },
+            {
+                "$group": {
+                    "_id": "$is_public",
+                    "events": {"$sum": 1},
+                    "avg_participation_rate": {"$avg": "$participation_rate"},
+                    "avg_utilization": {"$avg": "$util"},
+                }
+            },
+        ]).to_list(None)
+
+        # Trends
+        trend_daily = await self._trend_by_day("events", "event_date", start, end)
+        trend_weekly = await self._trend_by_week("events", "event_date", start, end)
+        trend_monthly = await self._trend_by_month("events", "event_date", start, end)
+        growth_rate = await self._growth_rate("events", "event_date", start, end)
+
+        overview = {
+            "total_events": total_events,
+            "total_registered": total_registered,
+            "total_attended": total_attended,
+            "avg_utilization": round(avg_utilization * 100, 2),
+        }
+        trends = {
+            "daily": trend_daily,
+            "weekly": trend_weekly,
+            "monthly": trend_monthly,
+            "growth_rate": growth_rate,
+        }
+        capacity_utilization = {
+            "avg_utilization": round(avg_utilization * 100, 2),
+            "over_capacity_events": over_capacity_events,
+            "underutilized_events": underutilized_events,
+            "by_event_type": util_by_type,
+            "by_city": util_by_city,
+            "by_organizer": util_by_organizer,
+        }
+        registration_funnel = {
+            "total_registered": total_registered_calc,
+            "total_attended": total_attended_calc,
+            "conversion_rate": round(conversion_rate, 2),
+            "drop_off_rate": round(drop_off_rate, 2),
+            "by_event_type": funnel_by_type,
+            "by_city": funnel_by_city,
+            "by_organizer": funnel_by_organizer,
+        }
+        feedback_analytics = {
+            "avg_rating": round(float(feedback_overall.get("avg_rating") or 0.0), 2),
+            "total_feedbacks": int(feedback_overall.get("total_feedbacks") or 0),
+            "sentiment": {
+                "positive": int(feedback_overall.get("positive") or 0),
+                "neutral": int(feedback_overall.get("neutral") or 0),
+                "negative": int(feedback_overall.get("negative") or 0),
+            },
+            "by_event_type": [
+                {
+                    "label": self._safe_label(r.get("_id")),
+                    "avg_rating": round(float(r.get("avg_rating") or 0.0), 2),
+                    "total_feedbacks": int(r.get("total_feedbacks") or 0),
+                    "positive": int(r.get("positive") or 0),
+                    "neutral": int(r.get("neutral") or 0),
+                    "negative": int(r.get("negative") or 0),
+                }
+                for r in feedback_by_type
+            ],
+            "by_city": [
+                {
+                    "label": self._safe_label(r.get("_id")),
+                    "avg_rating": round(float(r.get("avg_rating") or 0.0), 2),
+                    "total_feedbacks": int(r.get("total_feedbacks") or 0),
+                    "positive": int(r.get("positive") or 0),
+                    "neutral": int(r.get("neutral") or 0),
+                    "negative": int(r.get("negative") or 0),
+                }
+                for r in feedback_by_city
+            ],
+        }
+        budget_analytics = {
+            "total_budget": round(total_budget, 2),
+            "total_spent": round(total_spent, 2),
+            "budget_variance": round(total_budget - total_spent, 2),
+            "cost_per_attendee": round(cost_per_attendee, 2),
+            "most_expensive_events": [
+                {
+                    "event_id": r.get("event_id"),
+                    "title": r.get("title", "Untitled"),
+                    "actual_expense": float(r.get("actual_expense") or 0.0),
+                    "estimated_budget": float(r.get("estimated_budget") or 0.0),
+                }
+                for r in most_expensive
+            ],
+        }
+        planning_efficiency = {
+            "avg_lead_time": round(float(lead_stats.get("avg_lead") or 0.0), 2),
+            "short_notice_events": int(lead_stats.get("short_notice") or 0),
+            "well_planned_events": int(lead_stats.get("well_planned") or 0),
+            "cancellation_rate": round((cancelled_events / total_events * 100.0) if total_events else 0.0, 2),
+            "postponement_rate": round((postponed_events / total_events * 100.0) if total_events else 0.0, 2),
+        }
+        organizer_performance = {
+            "top_organizers": top_organizers,
+            "low_performers": low_performers,
+        }
+        metadata_analytics = {
+            "events_by_language": [
+                {"label": self._safe_label(r.get("_id")), "value": int(r.get("count", 0))}
+                for r in language_rows
+            ],
+            "events_by_tags": [
+                {"label": self._safe_label(r.get("_id")), "value": int(r.get("count", 0))}
+                for r in tags_rows
+            ],
+            "public_vs_private": [
+                {
+                    "label": "public" if r.get("_id") else "private",
+                    "events": int(r.get("events", 0)),
+                    "avg_participation_rate": round(float(r.get("avg_participation_rate") or 0.0), 2),
+                    "avg_utilization": round(float(r.get("avg_utilization") or 0.0) * 100, 2),
+                }
+                for r in public_rows
+            ],
+        }
+
+        return {
+            "overview": overview,
+            "trends": trends,
+            "capacity_utilization": capacity_utilization,
+            "registration_funnel": registration_funnel,
+            "feedback_analytics": feedback_analytics,
+            "budget_analytics": budget_analytics,
+            "planning_efficiency": planning_efficiency,
+            "organizer_performance": organizer_performance,
+            "metadata_analytics": metadata_analytics,
+        }
+
+    async def events_drilldown(
+        self,
+        drill_type: str,
+        event_id: Optional[str] = None,
+        organizer_id: Optional[str] = None,
+        city: Optional[str] = None,
+        event_type: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        page: int = 1,
+        limit: int = 50,
+    ) -> Dict[str, Any]:
+        start, end = self._parse_range("custom", start_date, end_date)
+        date_match = self._date_match("event_date", start, end)
+
+        match_filter: Dict[str, Any] = {}
+        if event_id:
+            if ObjectId.is_valid(event_id):
+                match_filter["$or"] = [{"event_id": event_id}, {"_id": ObjectId(event_id)}]
+            else:
+                match_filter["event_id"] = event_id
+        if organizer_id:
+            match_filter["created_by"] = organizer_id
+        if city:
+            match_filter["location.city"] = city
+        if event_type:
+            match_filter["event_type"] = event_type
+
+        extra_match: List[Dict[str, Any]] = []
+        if drill_type == "funnel_attended":
+            extra_match.append({"$match": {"registrations.attended": True}})
+
+        skip = (page - 1) * limit
+
+        pipeline: List[Dict[str, Any]] = [
+            {"$match": match_filter} if match_filter else {"$match": {}},
+            *date_match,
+            {"$unwind": "$registrations"},
+            *extra_match,
+            {
+                "$addFields": {
+                    "reg_user_obj": {
+                        "$convert": {
+                            "input": "$registrations.user_id",
+                            "to": "objectId",
+                            "onError": None,
+                            "onNull": None,
+                        }
+                    }
+                }
+            },
+            {
+                "$lookup": {
+                    "from": "users",
+                    "let": {"uid": "$reg_user_obj"},
+                    "pipeline": [
+                        {"$match": {"$expr": {"$eq": ["$_id", "$$uid"]}}},
+                        {"$project": {"full_name": 1, "role": 1, "mobile_number": 1, "location": 1}},
+                    ],
+                    "as": "user",
+                }
+            },
+            {"$unwind": {"path": "$user", "preserveNullAndEmptyArrays": True}},
+            {"$sort": {"registrations.registered_at": -1}},
+            {
+                "$project": {
+                    "_id": 0,
+                    "user_id": "$registrations.user_id",
+                    "name": {"$ifNull": ["$user.full_name", "Unknown"]},
+                    "role": {"$ifNull": ["$user.role", "unknown"]},
+                    "phone": "$user.mobile_number",
+                    "event_id": "$event_id",
+                    "event_title": "$title",
+                    "attended": {"$ifNull": ["$registrations.attended", False]},
+                    "feedback_rating": "$registrations.feedback_rating",
+                    "location": "$user.location",
+                }
+            },
+            {
+                "$facet": {
+                    "data": [
+                        {"$skip": skip},
+                        {"$limit": limit},
+                    ],
+                    "total": [{"$count": "count"}],
+                }
+            },
+        ]
+
+        results = await self.db.events.aggregate(pipeline).to_list(None)
+        if not results:
+            return {"total": 0, "users": []}
+
+        total = results[0].get("total", [])
+        total_count = int(total[0]["count"]) if total else 0
+        users = results[0].get("data", [])
+        return {"total": total_count, "users": users}
 
     async def chat(self, range_key: Optional[str], start_date: Optional[datetime], end_date: Optional[datetime]) -> Dict[str, Any]:
         start, end = self._parse_range(range_key, start_date, end_date)

@@ -4,7 +4,7 @@ Ops Analytics Schema
 Pydantic schemas for OPS analytics responses.
 """
 
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
 
@@ -328,3 +328,32 @@ class OpsDemographicDetailResponse(BaseModel):
     engagement_rate: float = 0.0
     complaint_status: List[DistributionItem] = Field(default_factory=list)
     sentiment_distribution: List[DistributionItem] = Field(default_factory=list)
+
+
+class OpsEventsDrilldownUser(BaseModel):
+    user_id: str
+    name: str = ""
+    role: str = ""
+    phone: Optional[str] = None
+    event_id: str = ""
+    event_title: str = ""
+    attended: Optional[bool] = None
+    feedback_rating: Optional[int] = None
+    location: Optional[Dict[str, Any]] = None
+
+
+class OpsEventsDrilldownResponse(BaseModel):
+    total: int = 0
+    users: List[OpsEventsDrilldownUser] = Field(default_factory=list)
+
+
+class OpsEventsAdvancedResponse(BaseModel):
+    overview: Dict[str, Any] = Field(default_factory=dict)
+    trends: Dict[str, Any] = Field(default_factory=dict)
+    capacity_utilization: Dict[str, Any] = Field(default_factory=dict)
+    registration_funnel: Dict[str, Any] = Field(default_factory=dict)
+    feedback_analytics: Dict[str, Any] = Field(default_factory=dict)
+    budget_analytics: Dict[str, Any] = Field(default_factory=dict)
+    planning_efficiency: Dict[str, Any] = Field(default_factory=dict)
+    organizer_performance: Dict[str, Any] = Field(default_factory=dict)
+    metadata_analytics: Dict[str, Any] = Field(default_factory=dict)

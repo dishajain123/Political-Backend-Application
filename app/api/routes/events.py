@@ -14,6 +14,7 @@ from app.schemas.event_schema import (
     EventUpdateRequest,
     EventResponse,
     EventStatusUpdateRequest,
+    EventParticipantsResponse,
 )
 from app.api.dependencies import (
     get_current_user,
@@ -369,6 +370,31 @@ async def get_event_metrics(
     service = EventService()
     try:
         return await service.get_metrics(event_id)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+
+
+@router.get("/{event_id}/participants", response_model=EventParticipantsResponse, status_code=status.HTTP_200_OK)
+async def get_event_participants(
+    event_id: str,
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200),
+    current_user: CurrentUser = Depends(require_permission(Permission.TRACK_EVENT_PARTICIPATION)),
+):
+    """
+    Get event participants with registration and attendance details.
+    
+    Returns:
+    - Total registered
+    - Total attended
+    - Participant list with user details
+    """
+    service = EventService()
+    try:
+        return await service.get_participants(event_id, page=page, limit=limit)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

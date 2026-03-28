@@ -616,6 +616,91 @@ class EventService:
             "event_status": event.get("status"),
         }
 
+    async def get_participants(self, event_id: str, page: int = 1, limit: int = 50) -> dict:
+        match_filter = {"event_id": event_id}
+        if ObjectId.is_valid(event_id):
+            match_filter = {"$or": [{"event_id": event_id}, {"_id": ObjectId(event_id)}]}
+
+        totals = await self.collection.aggregate([
+            {"$match": match_filter},
+            {
+                "$project": {
+                    "event_id": "$event_id",
+                    "total_registered": {"$size": {"$ifNull": ["$registrations", []]}},
+                    "total_attended": {
+                        "$size": {
+                            "$filter": {
+                                "input": {"$ifNull": ["$registrations", []]},
+                                "as": "r",
+                                "cond": {"$eq": ["$$r.attended", True]},
+                            }
+                        }
+                    },
+                }
+            },
+        ]).to_list(1)
+        if not totals:
+            raise ValueError("Event not found")
+
+        skip = (page - 1) * limit
+        rows = await self.collection.aggregate([
+            {"$match": match_filter},
+            {"$unwind": {"path": "$registrations", "preserveNullAndEmptyArrays": False}},
+            {
+                "$addFields": {
+                    "reg_user_obj": {
+                        "$convert": {
+                            "input": "$registrations.user_id",
+                            "to": "objectId",
+                            "onError": None,
+                            "onNull": None,
+                        }
+                    }
+                }
+            },
+            {
+                "$lookup": {
+                    "from": "users",
+                    "let": {"uid": "$reg_user_obj"},
+                    "pipeline": [
+                        {"$match": {"$expr": {"$eq": ["$_id", "$$uid"]}}},
+                        {"$project": {"full_name": 1, "role": 1, "mobile_number": 1}},
+                    ],
+                    "as": "user",
+                }
+            },
+            {"$unwind": {"path": "$user", "preserveNullAndEmptyArrays": True}},
+            {"$sort": {"registrations.registered_at": -1}},
+            {"$skip": skip},
+            {"$limit": limit},
+            {
+                "$project": {
+                    "_id": 0,
+                    "user_id": "$registrations.user_id",
+                    "name": {"$ifNull": ["$user.full_name", "Unknown"]},
+                    "role": {"$ifNull": ["$user.role", "unknown"]},
+                    "phone": "$user.mobile_number",
+                    "attended": {"$ifNull": ["$registrations.attended", False]},
+                    "feedback_rating": "$registrations.feedback_rating",
+                    "registered_at": "$registrations.registered_at",
+                }
+            },
+        ]).to_list(None)
+
+        users = []
+        for row in rows:
+            reg_at = row.get("registered_at")
+            if isinstance(reg_at, datetime):
+                row["registered_at"] = reg_at.isoformat()
+            users.append(row)
+
+        return {
+            "event_id": totals[0].get("event_id") or event_id,
+            "total_registered": totals[0].get("total_registered", 0),
+            "total_attended": totals[0].get("total_attended", 0),
+            "users": users,
+        }
+
     @staticmethod
     def _normalize_doc(doc: dict) -> dict:
         """Normalize Mongo document for response."""

@@ -20,6 +20,8 @@ from app.schemas.ops_analytics_schema import (
     OpsRoleResponse,
     OpsCampaignsResponse,
     OpsEventsResponse,
+    OpsEventsAdvancedResponse,
+    OpsEventsDrilldownResponse,
     OpsChatResponse,
     OpsComplaintsResponse,
     OpsComplaintsGeoResponse,
@@ -452,6 +454,48 @@ async def ops_events(
     start = datetime.fromisoformat(start_date) if start_date else None
     end = datetime.fromisoformat(end_date) if end_date else None
     return await service.events(range, start, end)
+
+
+@router.get("/ops/events/advanced", response_model=OpsEventsAdvancedResponse, summary="OPS advanced event analytics")
+async def ops_events_advanced(
+    range: str = Query("last_30_days"),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    _=Depends(require_ops()),
+):
+    service = OpsAnalyticsService()
+    start = datetime.fromisoformat(start_date) if start_date else None
+    end = datetime.fromisoformat(end_date) if end_date else None
+    return await service.events_advanced(range, start, end)
+
+
+@router.get("/ops/events/drilldown", response_model=OpsEventsDrilldownResponse, summary="OPS event drilldown")
+async def ops_events_drilldown(
+    type: str = Query(..., description="event | organizer | city | event_type | funnel_registered | funnel_attended"),
+    event_id: Optional[str] = Query(None),
+    organizer_id: Optional[str] = Query(None),
+    city: Optional[str] = Query(None),
+    event_type: Optional[str] = Query(None),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200),
+    _=Depends(require_ops()),
+):
+    service = OpsAnalyticsService()
+    start = datetime.fromisoformat(start_date) if start_date else None
+    end = datetime.fromisoformat(end_date) if end_date else None
+    return await service.events_drilldown(
+        drill_type=type,
+        event_id=event_id,
+        organizer_id=organizer_id,
+        city=city,
+        event_type=event_type,
+        start_date=start,
+        end_date=end,
+        page=page,
+        limit=limit,
+    )
 
 
 @router.get("/ops/chat", response_model=OpsChatResponse, summary="OPS chat analytics")

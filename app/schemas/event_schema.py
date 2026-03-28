@@ -239,3 +239,20 @@ class EventAnalyticsResponse(BaseModel):
                 "average_feedback_rating": 4.3
             }
         }
+
+
+class EventParticipantItem(BaseModel):
+    user_id: str
+    name: str
+    role: str
+    phone: Optional[str] = None
+    attended: bool = False
+    feedback_rating: Optional[int] = None
+    registered_at: Optional[str] = None
+
+
+class EventParticipantsResponse(BaseModel):
+    event_id: str
+    total_registered: int
+    total_attended: int
+    users: List[EventParticipantItem]
