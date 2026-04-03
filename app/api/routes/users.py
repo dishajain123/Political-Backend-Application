@@ -62,16 +62,26 @@ async def create_user(
         HTTPException: If validation fails or user already exists
     """
     try:
+        logger.info(f"Creating user with email: {request.email}, role: {request.role}")
+        logger.debug(f"Current user: {current_user.user_id}, role: {current_user.role}")
+        logger.debug(f"Request location: {request.location}")
+        
+        # Create the user
         user = await UserService.create_user(request, created_by=current_user.user_id)
-        logger.info(f"User created: {user['id']} by {current_user.user_id}")
+        logger.info(f"User created: {user.get('id') or user.get('_id')} by {current_user.user_id}")
+        logger.debug(f"User document: {user}")
+        
         return user
     except ValueError as e:
+        logger.warning(f"User creation validation error: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
-        logger.error(f"User creation failed: {e}")
+        logger.error(f"User creation failed: {type(e).__name__}: {e}", exc_info=True)
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="User creation failed"
+            detail=f"User creation failed: {str(e)}"
         )
 
 
@@ -182,6 +192,167 @@ async def get_users_directory(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to fetch directory"
+        )
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# CORPORATORS MANAGEMENT
+# ════════════════════════════════════════════════════════════════════════════
+
+@router.post("/corporators", response_model=UserProfileResponse, status_code=status.HTTP_201_CREATED)
+async def create_corporator(
+    request: UserCreateRequest,
+    current_user: CurrentUser = Depends(require_permission(Permission.CREATE_USER))
+) -> UserProfileResponse:
+    """
+    Create a new corporator (OPS only).
+    
+    Args:
+        request: Corporator creation details
+        current_user: Authenticated OPS user
+        
+    Returns:
+        UserProfileResponse: Created corporator profile
+    """
+    try:
+        logger.info(f"[CREATE_CORPORATOR] Creating corporator: {request.email}")
+        
+        # Set role to corporator
+        request.role = UserRole.CORPORATOR
+        
+        # Use existing UserService.create_user method
+        user_data = await UserService.create_user(
+            request,
+            created_by=current_user.user_id
+        )
+        
+        logger.info(f"[CREATE_CORPORATOR] Corporator created successfully: {user_data.get('_id')}")
+        
+        # Convert to UserProfileResponse with all required fields
+        from datetime import datetime
+        return UserProfileResponse(
+            id=user_data.get("_id"),
+            email=user_data.get("email"),
+            full_name=user_data.get("full_name"),
+            mobile_number=user_data.get("mobile_number"),
+            role=user_data.get("role", UserRole.CORPORATOR),
+            location=user_data.get("location", {}),
+            is_active=user_data.get("is_active", True),
+            is_verified=user_data.get("is_verified", False),
+            is_mobile_verified=user_data.get("is_mobile_verified", False),
+            language_preference=user_data.get("language_preference", "en"),
+            profile_photo_url=user_data.get("profile_photo_url"),
+            created_at=user_data.get("created_at", datetime.utcnow()),
+            updated_at=user_data.get("updated_at"),
+            last_login=user_data.get("last_login"),
+            notification_preferences=user_data.get("notification_preferences"),
+            designation=user_data.get("designation"),
+            constituency=user_data.get("constituency"),
+            assigned_leader_id=user_data.get("assigned_leader_id"),
+            territory=user_data.get("territory"),
+            performance=user_data.get("performance"),
+            assigned_by=user_data.get("assigned_by"),
+            assigned_territory=user_data.get("assigned_territory"),
+            demographics=user_data.get("demographics"),
+            engagement=user_data.get("engagement"),
+            leader_responsibilities=user_data.get("leader_responsibilities"),
+            created_by=user_data.get("created_by"),
+            voter_lookup=user_data.get("voter_lookup")
+        )
+        
+    except HTTPException:
+        raise
+    except ValueError as e:
+        logger.warning(f"[CREATE_CORPORATOR] Validation error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"[CREATE_CORPORATOR] Error creating corporator: {type(e).__name__}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create corporator: {str(e)}"
+        )
+
+
+@router.get("/corporators", response_model=dict)
+async def list_corporators(
+    state: Optional[str] = Query(None, description="Filter by state"),
+    city: Optional[str] = Query(None, description="Filter by city"),
+    is_active: Optional[bool] = Query(None, description="Filter by active status"),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(50, ge=1, le=100, description="Items per page"),
+    current_user: CurrentUser = Depends(require_permission(Permission.VIEW_USER))
+) -> dict:
+    """
+    List all corporators (OPS only).
+    
+    Args:
+        state: Filter by state
+        city: Filter by city
+        is_active: Filter by active status
+        page: Page number
+        page_size: Items per page
+        current_user: Authenticated user (must be OPS)
+        
+    Returns:
+        List of corporators
+    """
+    try:
+        logger.info(f"[LIST_CORPORATORS] Listing corporators, requested by {current_user.user_id}")
+        
+        db = get_database()
+        
+        # Build filters for corporators only
+        filters = {"role": UserRole.CORPORATOR.value}
+        
+        if state:
+            filters["location.state"] = {"$regex": f"^{state}", "$options": "i"}
+        if city:
+            filters["location.city"] = {"$regex": f"^{city}", "$options": "i"}
+        if is_active is not None:
+            filters["is_active"] = is_active
+        
+        logger.debug(f"[LIST_CORPORATORS] Query filters: {filters}")
+        
+        # Count total
+        total = await db.users.count_documents(filters)
+        
+        # Fetch corporators with pagination
+        skip = (page - 1) * page_size
+        cursor = db.users.find(filters).skip(skip).limit(page_size)
+        corporators = await cursor.to_list(None)
+        
+        logger.info(f"[LIST_CORPORATORS] Retrieved {len(corporators)} corporators (total: {total})")
+        
+        # Format response
+        formatted_corporators = []
+        for corp in corporators:
+            formatted_corporators.append({
+                "id": str(corp.get("_id")),
+                "email": corp.get("email"),
+                "full_name": corp.get("full_name"),
+                "mobile_number": corp.get("mobile_number"),
+                "role": corp.get("role"),
+                "location": corp.get("location", {}),
+                "is_active": corp.get("is_active", True),
+                "created_at": corp.get("created_at").isoformat() if hasattr(corp.get("created_at"), 'isoformat') else str(corp.get("created_at"))
+            })
+        
+        return {
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": (total + page_size - 1) // page_size,
+            "items": formatted_corporators
+        }
+        
+    except Exception as e:
+        logger.error(f"[LIST_CORPORATORS] Error: {type(e).__name__}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list corporators: {str(e)}"
         )
 
 
@@ -442,6 +613,176 @@ async def list_users(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to list users"
+        )
+
+
+
+@router.get("/{user_id}", response_model=UserProfileResponse)
+async def get_user(
+    user_id: str,
+    current_user: CurrentUser = Depends(require_permission(Permission.VIEW_USER))
+) -> UserProfileResponse:
+    """
+    Get user by ID (requires VIEW_USER permission).
+    
+    SECURITY ENFORCEMENT:
+    - Voter profiles are always private
+    - Leaders can only view users in their assigned territory
+    - Corporators and OPS can view all users
+    
+    Args:
+        user_id (str): User ID to fetch
+        current_user (CurrentUser): Authenticated user
+        
+    Returns:
+        UserProfileResponse: User profile
+    """
+    try:
+        # CRITICAL: Pass current user context for territory enforcement
+        user = await UserService.get_user_by_id(
+            user_id,
+            requesting_user_id=current_user.user_id,
+            requesting_user_role=current_user.role
+        )
+        
+        if not user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        
+        # PRIVACY: Voter profiles are always private (even to Leaders in same territory)
+        if user.get("role") == UserRole.VOTER.value and user_id != current_user.user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Voter profiles are private"
+            )
+        
+        return user
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error fetching user {user_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch user"
+        )
+
+
+@router.patch("/me", response_model=UserProfileResponse)
+async def update_my_profile(
+    request: UserUpdateRequest,
+    current_user: CurrentUser = Depends(get_current_user)
+) -> UserProfileResponse:
+    """
+    Update current user's profile.
+    
+    Args:
+        request (UserUpdateRequest): Fields to update
+        current_user (CurrentUser): Authenticated user
+        
+    Returns:
+        UserProfileResponse: Updated user profile
+    """
+    try:
+        user = await UserService.update_user(current_user.user_id, request)
+        logger.info(f"User {current_user.user_id} updated profile")
+        return user
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error(f"Profile update failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Profile update failed"
+        )
+
+
+@router.patch("/{user_id}", response_model=UserProfileResponse)
+async def update_user(
+    user_id: str,
+    request: UserUpdateRequest,
+    current_user: CurrentUser = Depends(require_permission(Permission.UPDATE_USER))
+) -> UserProfileResponse:
+    """
+    Update user by ID (Corporator/Ops only).
+    
+    Args:
+        user_id (str): User ID to update
+        request (UserUpdateRequest): Fields to update
+        current_user (CurrentUser): Authenticated corporator/ops
+        
+    Returns:
+        UserProfileResponse: Updated user profile
+    """
+    try:
+        user = await UserService.update_user(user_id, request)
+        logger.info(f"User {user_id} updated by {current_user.user_id}")
+        return user
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error(f"User update failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="User update failed"
+        )
+
+
+@router.post("/me/demographics", response_model=UserProfileResponse)
+async def update_demographics(
+    request: VoterDemographicsRequest,
+    current_user: CurrentUser = Depends(require_role(UserRole.VOTER))
+) -> UserProfileResponse:
+    """
+    Update voter demographics (voter only).
+    
+    Args:
+        request (VoterDemographicsRequest): Demographics data
+        current_user (CurrentUser): Authenticated voter
+        
+    Returns:
+        UserProfileResponse: Updated user profile
+    """
+    try:
+        user = await UserService.update_voter_demographics(current_user.user_id, request)
+        logger.info(f"Voter {current_user.user_id} updated demographics")
+        return user
+    except Exception as e:
+        logger.error(f"Demographics update failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Demographics update failed"
+        )
+
+
+@router.post("/leaders/assign", status_code=status.HTTP_200_OK)
+async def assign_leader(
+    request: LeaderAssignmentRequest,
+    current_user: CurrentUser = Depends(require_permission(Permission.ASSIGN_LEADER_TERRITORY))
+) -> dict:
+    """
+    Assign territory to a leader (Corporator only).
+    
+    Args:
+        request (LeaderAssignmentRequest): Leader assignment details
+        current_user (CurrentUser): Authenticated corporator
+        
+    Returns:
+        dict: Assignment result
+    """
+    try:
+        result = await UserService.assign_leader_territory(
+            request, assigned_by=current_user.user_id
+        )
+        logger.info(f"Leader {request.leader_id} assigned territory by {current_user.user_id}")
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error(f"Leader assignment failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Leader assignment failed"
         )
 
 

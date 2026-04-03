@@ -47,7 +47,8 @@ class UserService:
     ) -> Dict[str, Any]:
         """
         Create a new user (Corporator/Ops only).
-        SECURITY: Only allows creation of LEADER or VOTER roles by admins.
+        SECURITY: Allows creation of CORPORATOR, LEADER, and VOTER roles.
+        OPS console users can create Corporators for system management.
         
         Args:
             request: User creation details
@@ -59,90 +60,161 @@ class UserService:
         Raises:
             ValueError: If validation fails
         """
-        # FIX: Validate that only LEADER or VOTER can be created via this endpoint
-        # CORPORATOR and OPS must be created through separate admin process
-        if request.role not in [UserRole.LEADER, UserRole.VOTER]:
-            raise ValueError("Can only create LEADER or VOTER accounts through this endpoint")
-        
-        db = get_database()
-        
-        # Check if user already exists
-        existing_user = await db.users.find_one({
-            "$or": [
-                {"email": request.email.lower()},
-                {"mobile_number": request.mobile_number}
-            ]
-        })
-        
-        if existing_user:
-            raise ValueError("Email or mobile number already registered")
-        
-        # Create user document
-        user_doc = {
-            "email": request.email.lower(),
-            "mobile_number": request.mobile_number,
-            "password_hash": hash_password(request.password),
-            "full_name": request.full_name,
-            "role": request.role.value,
-            "location": request.location.dict(),
-            "language_preference": request.language_preference,
-            "is_active": True,
-            "is_verified": False,
-            "is_mobile_verified": False,
-            "created_at": utc_now(),
-            "updated_at": utc_now(),
-            "created_by": created_by,
-            "notification_preferences": {
-                "email": True,
-                "sms": True,
-                "push": True
+        try:
+            logger.info(f"[CREATE_USER] Starting user creation for: {request.email}")
+            
+            # Validate that only CORPORATOR, LEADER, or VOTER can be created via this endpoint
+            # OPS role cannot be created through standard user creation (separate admin process)
+            if request.role not in [UserRole.CORPORATOR, UserRole.LEADER, UserRole.VOTER]:
+                logger.warning(f"[CREATE_USER] Invalid role: {request.role}")
+                raise ValueError("Can only create CORPORATOR, LEADER, or VOTER accounts through this endpoint")
+            
+            logger.debug(f"[CREATE_USER] Role validation passed: {request.role.value}")
+            db = get_database()
+            
+            # Validate email and mobile number
+            logger.debug(f"[CREATE_USER] Validating email: {request.email}")
+            if not validate_email(request.email):
+                logger.warning(f"[CREATE_USER] Invalid email format: {request.email}")
+                raise ValueError("Invalid email format")
+            logger.debug(f"[CREATE_USER] Validating mobile: {request.mobile_number}")
+            if not validate_mobile_number(request.mobile_number):
+                logger.warning(f"[CREATE_USER] Invalid mobile format: {request.mobile_number}")
+                raise ValueError("Invalid mobile number format")
+            
+            # Check if user already exists
+            logger.debug(f"[CREATE_USER] Checking for existing user...")
+            existing_user = await db.users.find_one({
+                "$or": [
+                    {"email": request.email.lower()},
+                    {"mobile_number": request.mobile_number}
+                ]
+            })
+            
+            if existing_user:
+                logger.warning(f"[CREATE_USER] User already exists: {request.email}")
+                raise ValueError("Email or mobile number already registered")
+            
+            logger.debug(f"[CREATE_USER] No existing user found, proceeding...")
+            logger.debug(f"Creating user: {request.email}, role: {request.role.value}")
+            
+            # Create user document
+            logger.debug(f"[CREATE_USER] Building user document...")
+            user_doc = {
+                "email": request.email.lower(),
+                "mobile_number": request.mobile_number,
+                "password_hash": hash_password(request.password),
+                "full_name": request.full_name,
+                "role": request.role.value,
+                "location": request.location.dict(),
+                "language_preference": request.language_preference,
+                "is_active": True,
+                "is_verified": False,
+                "is_mobile_verified": False,
+                "created_at": utc_now(),
+                "updated_at": utc_now(),
+                "created_by": created_by,
+                "notification_preferences": {
+                    "email": True,
+                    "sms": True,
+                    "push": True
+                }
             }
-        }
+            
+            logger.debug(f"[CREATE_USER] User doc base created, role: {request.role.value}")
+            
+            # Add role-specific fields
+            if request.role == UserRole.CORPORATOR:
+                logger.debug(f"[CREATE_USER] Adding CORPORATOR fields...")
+                user_doc["performance"] = {
+                    "active_leaders": 0,
+                    "total_voters_managed": 0,
+                    "complaints_resolved": 0,
+                    "events_organized": 0,
+                    "engagement_level": "medium",
+                    "rating": 0.0,
+                    "total_campaigns": 0,
+                    "active_campaigns": 0
+                }
+                user_doc["assigned_by"] = created_by
+                user_doc["corporator_responsibilities"] = []
+            
+            elif request.role == UserRole.VOTER:
+                logger.debug(f"[CREATE_USER] Adding VOTER fields...")
+                user_doc["engagement"] = {
+                    "level": EngagementLevel.PASSIVE.value,
+                    "issues_of_interest": [],
+                    "last_active_date": None,
+                    "total_complaints": 0,
+                    "total_polls_participated": 0,
+                    "total_feedback_given": 0
+                }
+                user_doc["assigned_leader_id"] = None
+            
+            elif request.role == UserRole.LEADER:
+                logger.debug(f"[CREATE_USER] Adding LEADER fields...")
+                user_doc["assigned_territory"] = request.location.dict()  # CRITICAL: Store assigned territory
+                user_doc["territory"] = {
+                    "assigned_areas": [],
+                    "assigned_wards": [],
+                    "total_voters_assigned": 0
+                }
+                user_doc["performance"] = {
+                    "messages_shared": 0,
+                    "complaints_followed_up": 0,
+                    "complaints_handled": 0,
+                    "complaints_resolved": 0,
+                    "events_participated": 0,
+                    "voter_interactions": 0,
+                    "poll_responses": 0,
+                    "poll_response_rate": 0.0,
+                    "engagement_level": "low",
+                    "average_response_time_hours": 0.0,
+                    "rating": 0.0,
+                    "tasks_assigned": 0,
+                    "tasks_completed": 0,
+                    "ground_verifications_completed": 0
+                }
+                user_doc["assigned_by"] = created_by
+                user_doc["leader_responsibilities"] = []
+            
+            logger.debug(f"[CREATE_USER] Inserting user document for: {request.email}")
+            logger.debug(f"[CREATE_USER] User document structure: {list(user_doc.keys())}")
+            try:
+                result = await db.users.insert_one(user_doc)
+                user_id = str(result.inserted_id)
+                logger.info(f"[CREATE_USER] User inserted successfully with ID: {user_id}")
+            except Exception as e:
+                logger.error(f"[CREATE_USER] Database insertion failed: {type(e).__name__}: {e}")
+                raise
+            
+            logger.info(f"[CREATE_USER] User created: {user_id} ({request.role.value}) by {created_by}")
+            
+            logger.debug(f"[CREATE_USER] Fetching created user: {user_id}")
+            try:
+                created_user = await UserService.get_user_by_id(user_id)
+            except Exception as e:
+                logger.error(f"[CREATE_USER] get_user_by_id failed: {type(e).__name__}: {e}")
+                raise
+            
+            if not created_user:
+                logger.error(f"[CREATE_USER] Failed to retrieve created user: {user_id}")
+                raise ValueError(f"Failed to retrieve created user: {user_id}")
+            
+            logger.debug(f"[CREATE_USER] Retrieved user for response: {list(created_user.keys())}")
+            logger.debug(f"[CREATE_USER] User location type: {type(created_user.get('location'))}, value: {created_user.get('location')}")
+            logger.info(f"[CREATE_USER] User creation complete and verified")
+            
+            return created_user
         
-        # Add role-specific fields
-        if request.role == UserRole.VOTER:
-            user_doc["engagement"] = {
-                "level": EngagementLevel.PASSIVE.value,
-                "issues_of_interest": [],
-                "last_active_date": None,
-                "total_complaints": 0,
-                "total_polls_participated": 0,
-                "total_feedback_given": 0
-            }
-            user_doc["assigned_leader_id"] = None
-        
-        elif request.role == UserRole.LEADER:
-            user_doc["assigned_territory"] = request.location.dict()  # CRITICAL: Store assigned territory
-            user_doc["territory"] = {
-                "assigned_areas": [],
-                "assigned_wards": [],
-                "total_voters_assigned": 0
-            }
-            user_doc["performance"] = {
-                "messages_shared": 0,
-                "complaints_followed_up": 0,
-                "complaints_handled": 0,
-                "complaints_resolved": 0,
-                "events_participated": 0,
-                "voter_interactions": 0,
-                "poll_responses": 0,
-                "poll_response_rate": 0.0,
-                "engagement_level": "low",
-                "average_response_time_hours": 0.0,
-                "rating": 0.0,
-                "tasks_assigned": 0,
-                "tasks_completed": 0,
-                "ground_verifications_completed": 0
-            }
-            user_doc["assigned_by"] = created_by
-            user_doc["leader_responsibilities"] = []
-        
-        result = await db.users.insert_one(user_doc)
-        user_id = str(result.inserted_id)
-        
-        logger.info(f"User created: {user_id} ({request.role.value}) by {created_by}")
-        
-        return await UserService.get_user_by_id(user_id)
+        except ValueError:
+            logger.warning(f"[CREATE_USER] ValueError raised, will propagate")
+            raise
+        except Exception as e:
+            logger.error(f"[CREATE_USER] Unexpected error: {type(e).__name__}: {e}", exc_info=True)
+            import traceback
+            logger.error(f"[CREATE_USER] Traceback: {traceback.format_exc()}")
+            raise ValueError(f"User creation error: {str(e)}")
     
     @staticmethod
     async def get_user_by_id(

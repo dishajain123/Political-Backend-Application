@@ -7,7 +7,7 @@ Author: Political Communication Platform Team
 """
 
 from typing import Dict, List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class LocationHierarchy(BaseModel):
@@ -22,9 +22,8 @@ class LocationHierarchy(BaseModel):
     building: Optional[str] = None
     booth_number: Optional[str] = None
     
-    class Config:
-        """Pydantic configuration"""
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "state": "Maharashtra",
                 "city": "Mumbai",
@@ -34,6 +33,7 @@ class LocationHierarchy(BaseModel):
                 "booth_number": "123"
             }
         }
+    )
 
 
 def build_location_filter(location: LocationHierarchy) -> Dict:

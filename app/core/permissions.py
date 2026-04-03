@@ -218,7 +218,7 @@ ROLE_PERMISSIONS: Dict[UserRole, Set[str]] = {
     # OPS: Operations and analytics console
     # NOTE: OPS role is NOT part of the political hierarchy (see roles.py)
     # OPS users access operations endpoints via permission-based checks only.
-    # OPS has NO access to CREATE/DELETE operations - only READ and UPDATE_STATUS for management.
+    # OPS has LIMITED CREATE/DELETE operations - can create users/corporators for system management.
     UserRole.OPS: {
         # Complaints (full management - read/update only, no delete)
         Permission.VIEW_ALL_COMPLAINTS,
@@ -237,7 +237,8 @@ ROLE_PERMISSIONS: Dict[UserRole, Set[str]] = {
         Permission.APPROVE_APPOINTMENT,
         Permission.RESCHEDULE_APPOINTMENT,
         
-        # User management (view and analytics only)
+        # User management (create users/corporators, view and analytics)
+        Permission.CREATE_USER,
         Permission.VIEW_USER,
         Permission.VIEW_USER_ANALYTICS,
         

@@ -22,6 +22,8 @@ from app.api.routes import (
     notifications,
     analytics,
     voter_profile,
+    areas,
+    wards,
 )
 from app.api.routes import help_numbers as help_numbers_router
 from app.api.routes.campaigns import router as campaigns_router
@@ -48,3 +50,5 @@ def register_routers(app: FastAPI) -> None:
     app.include_router(chat_router, prefix=settings.API_V1_PREFIX, tags=["Chat"])
     app.include_router(help_numbers_router.router, prefix=settings.API_V1_PREFIX, tags=["Help Numbers"])
     app.include_router(campaigns_router, prefix=settings.API_V1_PREFIX, tags=["Campaigns"])
+    app.include_router(areas.router, prefix=settings.API_V1_PREFIX, tags=["Areas"])
+    app.include_router(wards.router, prefix=settings.API_V1_PREFIX, tags=["Wards"])
