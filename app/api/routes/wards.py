@@ -32,6 +32,7 @@ class WardCreateRequest(BaseModel):
     ward_number: Optional[str] = Field(default=None, max_length=50)
     state: str = Field(..., min_length=1, max_length=100)
     city: str = Field(..., min_length=1, max_length=100)
+    area_id: Optional[str] = Field(default=None, description="ID of the parent area")
     description: Optional[str] = Field(default=None, max_length=1000)
 
 
@@ -42,6 +43,7 @@ class WardResponse(BaseModel):
     ward_number: Optional[str] = None
     state: str
     city: str
+    area_id: Optional[str] = None
     description: Optional[str] = None
     created_at: str
     updated_at: str
@@ -98,6 +100,7 @@ async def create_ward(
             "state_lower": request.state.lower(),
             "city": request.city,
             "city_lower": request.city.lower(),
+            "area_id": request.area_id,
             "description": request.description,
             "created_by": current_user.user_id,
             "created_at": utc_now(),
@@ -119,6 +122,7 @@ async def create_ward(
             "ward_number": ward_doc.get("ward_number"),
             "state": ward_doc["state"],
             "city": ward_doc["city"],
+            "area_id": ward_doc.get("area_id"),
             "description": ward_doc.get("description"),
             "created_at": ward_doc["created_at"].isoformat() if hasattr(ward_doc["created_at"], 'isoformat') else str(ward_doc["created_at"]),
             "updated_at": ward_doc["updated_at"].isoformat() if hasattr(ward_doc["updated_at"], 'isoformat') else str(ward_doc["updated_at"])
